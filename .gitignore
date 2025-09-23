@@ -28,6 +28,8 @@ migrations*
 
 #data
 data/streams.json
+nginx/dash/*
+nginx/hls/*
 
 #Ignore vscode AI rules
 .github\copilot-instructions.md

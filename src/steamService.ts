@@ -157,42 +157,42 @@ export class StreamService {
             console.log('RTSP Source:', rtspUrl);
             console.log('RTMP Target:', rtmpUrl);
 
-            const gst = spawn('ffmpeg', args);
+            const ffmpeg = spawn('ffmpeg', args);
 
             // Configurar handlers de eventos
-            StreamService.setupGStreamerHandlers(gst);
+            StreamService.setupFFmpegHandlers(ffmpeg);
 
-            return gst;
+            return ffmpeg;
         } catch (error) {
-            console.error('Failed to spawn GStreamer process:', error);
+            console.error('Failed to spawn FFmpeg process:', error);
             return null;
         }
     }
 
     /**
-     * Configura los event handlers para el proceso GStreamer
+     * Configura los event handlers para el proceso FFmpeg
      */
-    private static setupGStreamerHandlers(gst: ChildProcess): void {
-        gst.stderr?.on('data', (data) => {
+    private static setupFFmpegHandlers(ffmpeg: ChildProcess): void {
+        ffmpeg.stderr?.on('data', (data) => {
             const message = data.toString();
             // Mostrar TODOS los mensajes para debugging
             console.log(`FFmpeg: ${message.trim()}`);
         });
 
-        gst.stdout?.on('data', (data) => {
+        ffmpeg.stdout?.on('data', (data) => {
             const message = data.toString();
             console.log(`FFmpeg stdout: ${message.trim()}`);
         });
 
-        gst.on('spawn', () => {
+        ffmpeg.on('spawn', () => {
             console.log('FFmpeg process spawned successfully');
         });
 
-        gst.on('close', (code) => {
+        ffmpeg.on('close', (code) => {
             console.log(`FFmpeg process closed with code: ${code}`);
         });
 
-        gst.on('error', (error) => {
+        ffmpeg.on('error', (error) => {
             console.error('FFmpeg process error:', error);
         });
 
