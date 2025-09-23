@@ -215,7 +215,7 @@ export class StreamService {
      * Detiene un stream específico
      */
     static async stopStream(cameraId: string): Promise<boolean> {
-        return streamManager.removeStream(cameraId);
+        return await streamManager.removeStream(cameraId);
     }
 
     /**

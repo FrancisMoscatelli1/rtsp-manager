@@ -123,15 +123,17 @@ router.post('/', async (req: Request, res: Response) => {
         // Validar URL RTSP
         try {
             const urlObj = new URL(rtspUrl);
-            if (urlObj.protocol !== 'rtsp:') {
-                throw new Error('Invalid protocol');
-            }
+            if (urlObj.protocol !== 'rtsp:') throw new Error('Invalid protocol');
         } catch {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid RTSP URL format'
             });
         }
+
+        // Obtener stream existente (si existe) para decidir si reiniciar
+        const existing = persistenceService.getStream(cameraId);
+        const previousRtsp = existing?.configuration?.rtspUrl;
 
         const streamConfig: Omit<StreamConfiguration, 'created' | 'lastModified'> = {
             cameraId,
@@ -141,23 +143,41 @@ router.post('/', async (req: Request, res: Response) => {
 
         const streamState = await persistenceService.addOrUpdateStream(streamConfig);
 
-        // Auto-iniciar el stream automáticamente
-        try {
-            console.log(`Auto-starting stream: ${name}`);
-            const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
-            
-            if (startResult.success) {
-                console.log(`✅ Stream auto-started successfully: ${name}`);
-            } else {
-                console.warn(`⚠️ Failed to auto-start stream: ${name} - ${startResult.message}`);
-            }
-        } catch (error) {
-            console.error(`❌ Error auto-starting stream: ${name}`, error);
+        // Solo reiniciar/arrancar este stream si es nuevo o cambió la RTSP URL
+        const shouldRestart = !existing || (previousRtsp !== rtspUrl);
+        if (shouldRestart) {
+            console.log(`Applying changes for camera ${cameraId} — restarting only this stream`);
+            const restartCameraStream = async (cameraId: string) => {
+                try {
+                    // detener si ya estaba activo
+                    const streamStopped = await StreamService.stopStream(cameraId);
+                    if (streamStopped) {
+                        const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
+
+                        if (startResult.success) {
+                            console.log(`✅ Stream started: ${name} (${cameraId})`);
+                        } else {
+                            console.warn(`⚠️ Failed to start stream ${cameraId}: ${startResult.message}`);
+                            restartCameraStream(cameraId);
+                        }
+                    } else {
+                        console.log(`Stream for camera ${cameraId} was not stopped, restarting anyway in 5 seconds`);
+                        setTimeout(() => restartCameraStream(cameraId), 5000);
+                    }
+
+                } catch (err) {
+                    console.error(`Error managing stream ${cameraId}:`, err, 'retrying in 5 seconds');
+                    setTimeout(() => restartCameraStream(cameraId), 5000);
+                }
+            };
+            restartCameraStream(cameraId);
+        } else {
+            console.log(`Updated configuration for camera ${cameraId} without restarting stream`);
         }
 
         res.status(201).json({
             success: true,
-            message: 'Stream configured and started automatically',
+            message: 'Stream configured',
             data: streamState
         });
         return;
@@ -189,7 +209,7 @@ router.delete('/:cameraId', async (req: Request, res: Response) => {
 
         // Eliminar de la configuración
         const deleted = await persistenceService.deleteStream(cameraId);
-        
+
         if (deleted) {
             res.json({
                 success: true,

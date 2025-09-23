@@ -39,18 +39,58 @@ class StreamManager {
     console.log(`Stream started for camera ${cameraId}`);
   }
 
-  removeStream(cameraId: string): boolean {
-    const stream = this.activeStreams.get(cameraId);
-    if (stream) {
-      if (!stream.process.killed) {
-        stream.process.kill('SIGINT');
+  removeStream(cameraId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const stream = this.activeStreams.get(cameraId);
+      if (!stream) {
+        resolve(false);
+        return;
       }
-      
-      this.activeStreams.delete(cameraId);
-      console.log(`Stream removed for camera ${cameraId}`);
-      return true;
-    }
-    return false;
+
+      if (stream.process.killed) {
+        // Ya está muerto, solo limpiamos
+        this.activeStreams.delete(cameraId);
+        console.log(`Stream removed for camera ${cameraId} (already killed)`);
+        resolve(true);
+        return;
+      }
+
+      // Configurar listener para cuando termine el proceso
+      const onClose = (code: number | null) => {
+        this.activeStreams.delete(cameraId);
+        console.log(`Stream removed for camera ${cameraId} (terminated with code: ${code})`);
+        resolve(true);
+      };
+
+      // Agregar listener temporal para este cierre específico
+      stream.process.once('close', onClose);
+
+      // Matar el proceso
+      try {
+        stream.process.kill('SIGINT');
+      } catch (error) {
+        console.warn(`Failed to kill process for ${cameraId}:`, error);
+        // Si falla matarlo, limpiamos de todos modos
+        stream.process.removeListener('close', onClose);
+        this.activeStreams.delete(cameraId);
+        resolve(true);
+      }
+
+      // Timeout de seguridad en caso de que el proceso no termine
+      setTimeout(() => {
+        if (this.activeStreams.has(cameraId)) {
+          console.warn(`Force removing stream ${cameraId} after timeout`);
+          stream.process.removeListener('close', onClose);
+          try {
+            stream.process.kill('SIGKILL');
+          } catch (e) {
+            console.warn(`Failed to force kill process for ${cameraId}:`, e);
+          }
+          this.activeStreams.delete(cameraId);
+          resolve(true);
+        }
+      }, 5000); // 5 segundos timeout
+    });
   }
 
   updateLastAccess(cameraId: string): void {
@@ -73,11 +113,11 @@ class StreamManager {
     return Array.from(this.activeStreams.keys());
   }
 
-  closeAllStreams(): void {
+  async closeAllStreams(): Promise<void> {
     console.log('Closing all active streams...');
-    for (const cameraId of this.activeStreams.keys()) {
-      this.removeStream(cameraId);
-    }
+    const cameraIds = Array.from(this.activeStreams.keys());
+    const promises = cameraIds.map(cameraId => this.removeStream(cameraId));
+    await Promise.all(promises);
   }
 
   getStreamInfo(cameraId: string): ActiveStream | undefined {
@@ -103,8 +143,9 @@ class StreamManager {
       console.error('Error handling stream termination:', error);
     }
     
-    // Remover del manager
-    this.removeStream(cameraId);
+    // Solo limpiar del manager, no matar el proceso (ya terminó)
+    this.activeStreams.delete(cameraId);
+    console.log(`Stream cleaned up for camera ${cameraId}`);
   }
 
   /**
@@ -120,8 +161,9 @@ class StreamManager {
       console.error('Error handling stream error in persistence:', persistenceError);
     }
     
-    // Remover del manager
-    this.removeStream(cameraId);
+    // Solo limpiar del manager, el proceso probablemente ya murió
+    this.activeStreams.delete(cameraId);
+    console.log(`Stream cleaned up after error for camera ${cameraId}`);
   }
 }
 
@@ -129,12 +171,12 @@ class StreamManager {
 export const streamManager = new StreamManager();
 
 // Cleanup al cerrar la aplicación
-process.on('SIGINT', () => {
-  streamManager.closeAllStreams();
+process.on('SIGINT', async () => {
+  await streamManager.closeAllStreams();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-  streamManager.closeAllStreams();
+process.on('SIGTERM', async () => {
+  await streamManager.closeAllStreams();
   process.exit(0);
 });
