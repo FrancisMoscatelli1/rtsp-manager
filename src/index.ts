@@ -19,7 +19,7 @@ app.use(logger('dev'));
 
 
 // Routes
-app.use('/api/streams', streamRoutes);
+app.use('/streams', streamRoutes);
 
 const init = async () => {
   try {
@@ -30,11 +30,6 @@ const init = async () => {
 
     app.listen(config.expressPort, () => {
       console.log(`Server is listening on port ${config.expressPort}....`);
-      console.log(`API endpoints available at:`);
-      console.log(`  GET    /api/streams           - List all streams`);
-      console.log(`  POST   /api/streams           - Create/update stream`);
-      console.log(`  GET    /api/streams/:id       - Get specific stream`);
-      console.log(`  DELETE /api/streams/:id       - Delete stream`);
     });
   } catch (error) {
     console.error('Error during initialization:', error);

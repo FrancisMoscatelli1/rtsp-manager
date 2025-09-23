@@ -43,7 +43,7 @@ npm start
 
 #### 1. Listar todos los streams
 ```http
-GET /api/streams
+GET /streams
 ```
 
 **Respuesta:**
@@ -75,7 +75,7 @@ GET /api/streams
 
 #### 2. Crear/Actualizar un stream
 ```http
-POST /api/streams
+POST /streams
 Content-Type: application/json
 
 {
@@ -96,12 +96,12 @@ Content-Type: application/json
 
 #### 3. Obtener un stream específico
 ```http
-GET /api/streams/550e8400-e29b-41d4-a716-446655440001
+GET /streams/550e8400-e29b-41d4-a716-446655440001
 ```
 
 #### 4. Eliminar un stream
 ```http
-DELETE /api/streams/550e8400-e29b-41d4-a716-446655440001
+DELETE /streams/550e8400-e29b-41d4-a716-446655440001
 ```
 
 **Nota:** Al eliminar un stream, se detiene automáticamente si está activo.
