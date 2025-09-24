@@ -153,40 +153,6 @@ export class StreamService {
     }
 
     /**
-     * Configura los event handlers para el proceso FFmpeg
-     */
-    private static setupFFmpegHandlers(ffmpeg: ChildProcess, cameraId: string, rtspUrl: string): void {
-        ffmpeg.stderr?.on('data', (data) => {
-            const message = data.toString();
-            // Mostrar TODOS los mensajes para debugging
-            console.log(`FFmpeg: ${message.trim()}`);
-        });
-
-        ffmpeg.stdout?.on('data', (data) => {
-            const message = data.toString();
-            console.log(`FFmpeg stdout: ${message.trim()}`);
-        });
-
-        ffmpeg.on('spawn', () => {
-            console.log('FFmpeg process spawned successfully for camera', cameraId);
-        });
-
-        ffmpeg.on('close', async (code) => {
-            console.log(`FFmpeg process closed with code: ${code}`);
-            // await StreamService.stopStream(cameraId);
-            // setTimeout(() => {
-            //     StreamService.startDashStream(cameraId, rtspUrl);
-            // }, 2000); // Espera 2 segundos antes de reiniciar
-        });
-
-        ffmpeg.on('error', (error) => {
-            console.error('FFmpeg process error:', error);
-        });
-
-        // Los eventos de close y error son manejados por StreamManager
-    }
-
-    /**
      * Valida formato de URL RTSP
      */
     private static isValidRtspUrl(url: string): boolean {

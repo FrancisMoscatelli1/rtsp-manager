@@ -1,5 +1,6 @@
 import { ChildProcess } from 'child_process';
 import { StreamPersistenceService } from './services/streamPersistenceService';
+import { StreamService } from './steamService';
 
 interface ActiveStream {
   cameraId: string; // UUID
@@ -15,16 +16,27 @@ class StreamManager {
   async addStream(cameraId: string, process: ChildProcess): Promise<void> {
     // Cerrar stream existente si existe
     await this.removeStream(cameraId);
-
-    process.on('spawn', () => {
+    console.log(`Starting stream for camera ${cameraId}...`);
+    if (process.pid) {
       console.log(`✅ Camera stream started successfully (${cameraId})`);
+      // El proceso ya está spawneado
       this.activeStreams.set(cameraId, {
         cameraId,
         process,
         startTime: new Date(),
         lastAccess: new Date()
       });
-    });
+    } else {
+      process.on('spawn', () => {
+        console.log(`✅ Camera stream started successfully (${cameraId})`);
+        this.activeStreams.set(cameraId, {
+          cameraId,
+          process,
+          startTime: new Date(),
+          lastAccess: new Date()
+        });
+      });
+    }
 
     process.stdout?.on('data', (data) => {
       const message = data.toString();
@@ -47,64 +59,25 @@ class StreamManager {
     process.on('close', (code) => {
       console.log(`❌ Stream process for camera ${cameraId} closed with code: ${code}`);
       this.handleStreamTermination(cameraId, code);
-      //       // await StreamService.stopStream(cameraId);
-      //       // setTimeout(() => {
-      //       //     StreamService.startDashStream(cameraId, rtspUrl);
-      //       // }, 2000); // Espera 2 segundos antes de reiniciar
     });
   }
 
-  removeStream(cameraId: string): Promise<boolean> {
-    return new Promise((resolve) => {
+  async removeStream(cameraId: string): Promise<boolean> {
+    return new Promise<boolean>(async (resolve) => {
       const stream = this.activeStreams.get(cameraId);
-      if (!stream) {
-        resolve(false);
-        return;
-      }
+      if (!stream) return resolve(true);
 
-      if (stream.process.killed) {
-        // Ya está muerto, solo limpiamos
-        this.activeStreams.delete(cameraId);
-        console.log(`Stream removed for camera ${cameraId} (already killed)`);
-        resolve(true);
-        return;
-      }
-
-      // Configurar listener para cuando termine el proceso
-      const onClose = (code: number | null) => {
-        this.activeStreams.delete(cameraId);
-        console.log(`Stream removed for camera ${cameraId} (terminated with code: ${code})`);
-        resolve(true);
-      };
-
-      // Agregar listener temporal para este cierre específico
-      stream.process.once('close', onClose);
-
-      // Matar el proceso
-      try {
-        stream.process.kill('SIGINT');
-      } catch (error) {
-        console.warn(`Failed to kill process for ${cameraId}:`, error);
-        // Si falla matarlo, limpiamos de todos modos
-        stream.process.removeListener('close', onClose);
-        this.activeStreams.delete(cameraId);
-        resolve(true);
-      }
-
-      // Timeout de seguridad en caso de que el proceso no termine
-      setTimeout(() => {
-        if (this.activeStreams.has(cameraId)) {
-          console.warn(`Force removing stream ${cameraId} after timeout`);
-          stream.process.removeListener('close', onClose);
-          try {
-            stream.process.kill('SIGKILL');
-          } catch (e) {
-            console.warn(`Failed to force kill process for ${cameraId}:`, e);
-          }
-          this.activeStreams.delete(cameraId);
+      if (!stream.process.killed) {
+        try {
+          stream.process.once('close', () => resolve(true));
+          stream.process.kill('SIGINT');
+        } catch (error) {
+          console.warn(`Failed to kill process for ${cameraId}:`, error);
           resolve(true);
         }
-      }, 5000); // 5 segundos timeout
+      } else {
+        resolve(true);
+      }
     });
   }
 
@@ -146,21 +119,33 @@ class StreamManager {
     try {
       // Marcar como inactivo en persistencia
       await this.persistenceService.markStreamInactive(cameraId);
-
+      this.activeStreams.delete(cameraId);
       if (code !== 0 && code !== null) {
         // Si el proceso terminó con error, registrarlo
         await this.persistenceService.recordStreamError(
           cameraId,
           `Stream process terminated with code: ${code}`
         );
+
+        // Retry infinito cada 5 segundos
+        const retryStart = async () => {
+          const stream = this.persistenceService.getStream(cameraId);
+          if (stream) {
+            const result = await StreamService.startDashStream(stream.configuration.cameraId, stream.configuration.rtspUrl);
+            if (!result.success) {
+              console.warn(`⚠️ Retry to start stream ${cameraId} failed: ${result.message}`);
+              // Si falla, volver a intentar en 5 segundos
+              setTimeout(retryStart, 5000);
+            }
+          } else {
+            console.warn(`⚠️ Retry to start stream ${cameraId} failed: No stream configuration found`);
+          }
+        };
+        setTimeout(retryStart, 5000);
       }
     } catch (error) {
       console.error('Error handling stream termination:', error);
     }
-
-    // Solo limpiar del manager, no matar el proceso (ya terminó)
-    this.activeStreams.delete(cameraId);
-    console.log(`Stream cleaned up for camera ${cameraId}`);
   }
 
   /**
@@ -175,10 +160,6 @@ class StreamManager {
     } catch (persistenceError) {
       console.error('Error handling stream error in persistence:', persistenceError);
     }
-
-    // Solo limpiar del manager, el proceso probablemente ya murió
-    this.activeStreams.delete(cameraId);
-    console.log(`Stream cleaned up after error for camera ${cameraId}`);
   }
 }
 

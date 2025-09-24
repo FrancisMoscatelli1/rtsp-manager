@@ -134,7 +134,6 @@ router.post('/', async (req: Request, res: Response) => {
         // Obtener stream existente (si existe) para decidir si reiniciar
         const existing = persistenceService.getStream(cameraId);
         const previousRtsp = existing?.configuration?.rtspUrl;
-        const isActive = existing?.status?.isActive || false;
 
         const streamConfig: Omit<StreamConfiguration, 'created' | 'lastModified'> = {
             cameraId,
@@ -145,15 +144,11 @@ router.post('/', async (req: Request, res: Response) => {
         const streamState = await persistenceService.addOrUpdateStream(streamConfig);
         if (existing) {
             if (previousRtsp !== rtspUrl) {
-                console.log(`Applying changes for camera ${cameraId} — restarting only this stream`); await StreamService.stopStream(cameraId);
-
-                const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
-
-                if (startResult.success) {
-                    console.log(`✅ Stream started: ${name} (${cameraId})`);
-                } else {
-                    console.warn(`⚠️ Failed to start stream ${cameraId}: ${startResult.message}`);
-                }
+                console.log(`Applying changes for camera ${cameraId} — restarting only this stream`);
+                await StreamService.stopStream(cameraId);
+                setTimeout(async () => {
+                    await StreamService.startDashStream(cameraId, rtspUrl);
+                }, 3000); // Esperar 3 segundos para asegurar que el proceso se haya cerrado
             }
             res.status(201).json({
                 success: true,
@@ -166,7 +161,6 @@ router.post('/', async (req: Request, res: Response) => {
             const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
 
             if (startResult.success) {
-                console.log(`✅ Stream started: ${name} (${cameraId})`);
                 res.status(200).json({
                     success: true,
                     message: 'Stream configured and started',
