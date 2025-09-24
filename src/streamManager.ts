@@ -12,31 +12,46 @@ class StreamManager {
   private activeStreams: Map<string, ActiveStream> = new Map(); // UUID keys
   private persistenceService = StreamPersistenceService.getInstance();
 
-  addStream(cameraId: string, process: ChildProcess): void {
+  async addStream(cameraId: string, process: ChildProcess): Promise<void> {
     // Cerrar stream existente si existe
-    this.removeStream(cameraId);
+    await this.removeStream(cameraId);
 
-    const streamInfo: ActiveStream = {
-      cameraId,
-      process,
-      startTime: new Date(),
-      lastAccess: new Date()
-    };
-
-    this.activeStreams.set(cameraId, streamInfo);
-
-    // Cleanup cuando el proceso termina
-    process.on('close', (code) => {
-      console.log(`Stream process for camera ${cameraId} closed with code: ${code}`);
-      this.handleStreamTermination(cameraId, code);
+    process.on('spawn', () => {
+      console.log(`✅ Camera stream started successfully (${cameraId})`);
+      this.activeStreams.set(cameraId, {
+        cameraId,
+        process,
+        startTime: new Date(),
+        lastAccess: new Date()
+      });
     });
 
-    process.on('error', (error) => {
-      console.error(`Stream process for camera ${cameraId} error:`, error);
+    process.stdout?.on('data', (data) => {
+      const message = data.toString();
+      console.log(`Camera (${cameraId}) stdout: ${message.trim()}`);
+    });
+
+    process.stderr?.on('data', (data) => {
+      const message = data.toString();
+      // Mostrar TODOS los mensajes para debugging
+      console.log(`Camera (${cameraId}) stderr: ${message.trim()}`);
+      const error = new Error(message ? message.trim() : 'Unknown error');
       this.handleStreamError(cameraId, error);
     });
 
-    console.log(`Stream started for camera ${cameraId}`);
+    process.on('error', (error) => {
+      console.error(`❌ Stream process for camera ${cameraId} error:`, error);
+      this.handleStreamError(cameraId, error);
+    });
+
+    process.on('close', (code) => {
+      console.log(`❌ Stream process for camera ${cameraId} closed with code: ${code}`);
+      this.handleStreamTermination(cameraId, code);
+      //       // await StreamService.stopStream(cameraId);
+      //       // setTimeout(() => {
+      //       //     StreamService.startDashStream(cameraId, rtspUrl);
+      //       // }, 2000); // Espera 2 segundos antes de reiniciar
+    });
   }
 
   removeStream(cameraId: string): Promise<boolean> {
@@ -97,7 +112,7 @@ class StreamManager {
     const stream = this.activeStreams.get(cameraId);
     if (stream) {
       stream.lastAccess = new Date();
-      
+
       // Actualizar en persistencia de forma asíncrona sin bloquear
       this.persistenceService.updateLastAccess(cameraId).catch(error => {
         console.warn('Failed to update last access in persistence:', error);
@@ -131,18 +146,18 @@ class StreamManager {
     try {
       // Marcar como inactivo en persistencia
       await this.persistenceService.markStreamInactive(cameraId);
-      
+
       if (code !== 0 && code !== null) {
         // Si el proceso terminó con error, registrarlo
         await this.persistenceService.recordStreamError(
-          cameraId, 
+          cameraId,
           `Stream process terminated with code: ${code}`
         );
       }
     } catch (error) {
       console.error('Error handling stream termination:', error);
     }
-    
+
     // Solo limpiar del manager, no matar el proceso (ya terminó)
     this.activeStreams.delete(cameraId);
     console.log(`Stream cleaned up for camera ${cameraId}`);
@@ -160,7 +175,7 @@ class StreamManager {
     } catch (persistenceError) {
       console.error('Error handling stream error in persistence:', persistenceError);
     }
-    
+
     // Solo limpiar del manager, el proceso probablemente ya murió
     this.activeStreams.delete(cameraId);
     console.log(`Stream cleaned up after error for camera ${cameraId}`);

@@ -21,22 +21,9 @@ app.use(logger('dev'));
 // Routes
 app.use('/streams', streamRoutes);
 
-const init = async () => {
-  try {
-    // Inicializar el servicio de streams
-    console.log('Initializing Stream Service...');
-    await StreamService.initialize();
-    console.log('Stream Service initialized successfully');
-
-    app.listen(config.expressPort, () => {
-      console.log(`Server is listening on port ${config.expressPort}....`);
-    });
-  } catch (error) {
-    console.error('Error during initialization:', error);
-    setTimeout(() => {
-      init();
-    }, 5000); // Retry after 5 seconds
-  }
-}
-init();
-
+// Start server
+app.listen(config.expressPort, async () => {
+  console.log(`Server is listening on port ${config.expressPort}....`);
+  // Inicializar el servicio de streams
+  await StreamService.initialize();
+});

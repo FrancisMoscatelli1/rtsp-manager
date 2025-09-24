@@ -144,36 +144,16 @@ router.post('/', async (req: Request, res: Response) => {
 
         const streamState = await persistenceService.addOrUpdateStream(streamConfig);
         if (existing) {
-            // Solo reiniciar/arrancar este stream si es nuevo o cambió la RTSP URL
-            const shouldRestart = isActive && (previousRtsp !== rtspUrl);
-            if (shouldRestart) {
-                console.log(`Applying changes for camera ${cameraId} — restarting only this stream`);
-                const restartCameraStream = async (cameraId: string) => {
-                    try {
-                        // detener si ya estaba activo
-                        const streamStopped = await StreamService.stopStream(cameraId);
-                        if (streamStopped) {
-                            const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
+            if (previousRtsp !== rtspUrl) {
+                console.log(`Applying changes for camera ${cameraId} — restarting only this stream`); await StreamService.stopStream(cameraId);
 
-                            if (startResult.success) {
-                                console.log(`✅ Stream started: ${name} (${cameraId})`);
-                            } else {
-                                console.warn(`⚠️ Failed to start stream ${cameraId}: ${startResult.message}`);
-                                restartCameraStream(cameraId);
-                            }
-                        } else {
-                            console.log(`Stream for camera ${cameraId} was not stopped, restarting anyway in 5 seconds`);
-                            setTimeout(() => restartCameraStream(cameraId), 5000);
-                        }
+                const startResult = await StreamService.startDashStream(cameraId, rtspUrl);
 
-                    } catch (err) {
-                        console.error(`Error managing stream ${cameraId}:`, err, 'retrying in 5 seconds');
-                        setTimeout(() => restartCameraStream(cameraId), 5000);
-                    }
-                };
-                restartCameraStream(cameraId);
-            } else {
-                console.log(`Updated configuration for camera ${cameraId} without restarting stream`);
+                if (startResult.success) {
+                    console.log(`✅ Stream started: ${name} (${cameraId})`);
+                } else {
+                    console.warn(`⚠️ Failed to start stream ${cameraId}: ${startResult.message}`);
+                }
             }
             res.status(201).json({
                 success: true,

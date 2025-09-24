@@ -18,6 +18,7 @@ export class StreamService {
      * Inicializa el servicio y restaura streams configurados
      */
     static async initialize(): Promise<void> {
+        console.log('Initializing Stream Service...');
         await this.persistenceService.initialize();
         await this.restoreStreamsOnStartup();
     }
@@ -32,20 +33,13 @@ export class StreamService {
 
             for (const streamState of streamsToStart) {
                 try {
-                    console.log(`Starting stream for camera ${streamState.configuration.cameraId} (${streamState.configuration.name})`);
-                    const result = await this.startDashStream(
+                    await this.startDashStream(
                         streamState.configuration.cameraId,
                         streamState.configuration.rtspUrl
                     );
-
-                    if (result.success) {
-                        console.log(`✅ Successfully started stream for camera ${streamState.configuration.cameraId}`);
-                    } else {
-                        console.warn(`❌ Failed to start stream for camera ${streamState.configuration.cameraId}: ${result.message}`);
-                    }
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                    console.error(`❌ Error starting stream for camera ${streamState.configuration.cameraId}:`, errorMessage);
+                    console.error(`❌ Error starting stream for camera ${streamState.configuration.cameraId} on initialization:`, errorMessage);
                     await this.persistenceService.recordStreamError(streamState.configuration.cameraId, errorMessage);
                 }
             }
@@ -62,7 +56,7 @@ export class StreamService {
             // Verificar si ya hay un stream activo
             if (streamManager.isStreamActive(cameraId)) {
                 streamManager.updateLastAccess(cameraId);
-                
+
                 // Actualizar último acceso en persistencia
                 try {
                     await this.persistenceService.updateLastAccess(cameraId);
@@ -117,9 +111,6 @@ export class StreamService {
                 console.warn('Failed to mark stream as active in persistence:', persistenceError);
             }
 
-            console.log(`DASH stream started for camera ${cameraId}`);
-            console.log(`Source: ${rtspUrl} → Target: ${urls.rtmp}`);
-
             return {
                 success: true,
                 type: 'dash',
@@ -130,7 +121,7 @@ export class StreamService {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             console.error(`Error starting DASH stream for camera ${cameraId}:`, error);
-            
+
             // Registrar error en persistencia
             try {
                 await this.persistenceService.recordStreamError(cameraId, errorMessage);
@@ -152,15 +143,7 @@ export class StreamService {
         try {
             const args = FFMPEG_PIPELINE(rtspUrl, rtmpUrl);
 
-            // Log del comando completo para debugging
-            console.log('FFmpeg command:', 'ffmpeg', args.join(' '));
-            console.log('RTSP Source:', rtspUrl);
-            console.log('RTMP Target:', rtmpUrl);
-
             const ffmpeg = spawn('ffmpeg', args);
-
-            // Configurar handlers de eventos
-            StreamService.setupFFmpegHandlers(ffmpeg);
 
             return ffmpeg;
         } catch (error) {
@@ -172,7 +155,7 @@ export class StreamService {
     /**
      * Configura los event handlers para el proceso FFmpeg
      */
-    private static setupFFmpegHandlers(ffmpeg: ChildProcess): void {
+    private static setupFFmpegHandlers(ffmpeg: ChildProcess, cameraId: string, rtspUrl: string): void {
         ffmpeg.stderr?.on('data', (data) => {
             const message = data.toString();
             // Mostrar TODOS los mensajes para debugging
@@ -185,11 +168,15 @@ export class StreamService {
         });
 
         ffmpeg.on('spawn', () => {
-            console.log('FFmpeg process spawned successfully');
+            console.log('FFmpeg process spawned successfully for camera', cameraId);
         });
 
-        ffmpeg.on('close', (code) => {
+        ffmpeg.on('close', async (code) => {
             console.log(`FFmpeg process closed with code: ${code}`);
+            // await StreamService.stopStream(cameraId);
+            // setTimeout(() => {
+            //     StreamService.startDashStream(cameraId, rtspUrl);
+            // }, 2000); // Espera 2 segundos antes de reiniciar
         });
 
         ffmpeg.on('error', (error) => {
