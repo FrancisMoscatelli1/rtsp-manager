@@ -120,7 +120,7 @@ class StreamManager {
       // Marcar como inactivo en persistencia
       await this.persistenceService.markStreamInactive(cameraId);
       this.activeStreams.delete(cameraId);
-      if (code !== 0 && code !== null) {
+      if (code !== null) {
         // Si el proceso terminó con error, registrarlo
         await this.persistenceService.recordStreamError(
           cameraId,
