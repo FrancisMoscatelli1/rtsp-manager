@@ -10,6 +10,7 @@ export class StreamPersistenceService {
     private constructor() {
         this.dataFilePath = path.join(process.cwd(), 'data', 'streams.json');
         this.streamsData = { ...DEFAULT_STREAMS_DATA };
+        this.setupExitHandlers();
     }
 
     static getInstance(): StreamPersistenceService {
@@ -17,6 +18,48 @@ export class StreamPersistenceService {
             StreamPersistenceService.instance = new StreamPersistenceService();
         }
         return StreamPersistenceService.instance;
+    }
+
+    /**
+     * Configura los handlers para guardar datos al salir de la aplicación
+     */
+    private setupExitHandlers(): void {
+        const saveAndExit = async (signal: string) => {
+            console.log(`Received ${signal}, saving data before exit...`);
+            try {
+                await this.saveToFile();
+                console.log('Data saved successfully');
+            } catch (error) {
+                console.error('Failed to save data on exit:', error);
+            }
+            process.exit(0);
+        };
+
+        // Capturar diferentes señales de salida
+        process.on('SIGINT', () => saveAndExit('SIGINT'));   // Ctrl+C
+        process.on('SIGTERM', () => saveAndExit('SIGTERM')); // PM2 stop
+        process.on('SIGHUP', () => saveAndExit('SIGHUP'));   // Terminal close
+        
+        // Capturar errores no manejados
+        process.on('uncaughtException', async (error) => {
+            console.error('Uncaught exception:', error);
+            try {
+                await this.saveToFile();
+            } catch (saveError) {
+                console.error('Failed to save on uncaught exception:', saveError);
+            }
+            process.exit(1);
+        });
+        
+        process.on('unhandledRejection', async (reason) => {
+            console.error('Unhandled rejection:', reason);
+            try {
+                await this.saveToFile();
+            } catch (saveError) {
+                console.error('Failed to save on unhandled rejection:', saveError);
+            }
+            process.exit(1);
+        });
     }
 
     /**
@@ -55,12 +98,25 @@ export class StreamPersistenceService {
     }
 
     /**
-     * Guarda los datos al archivo JSON
+     * Guarda los datos al archivo JSON de forma atómica
      */
     private async saveToFile(): Promise<void> {
-        this.streamsData.lastUpdated = new Date().toISOString();
-        const jsonData = JSON.stringify(this.streamsData, null, 2);
-        await fs.writeFile(this.dataFilePath, jsonData, 'utf-8');
+        try {
+            this.streamsData.lastUpdated = new Date().toISOString();
+            const jsonData = JSON.stringify(this.streamsData, null, 2);
+            const tmpPath = this.dataFilePath + '.tmp';
+            
+            // Escribir a archivo temporal
+            await fs.writeFile(tmpPath, jsonData, 'utf-8');
+            
+            // Renombrar solo si la escritura fue exitosa
+            await fs.rename(tmpPath, this.dataFilePath);
+            
+            console.log('Stream data saved successfully');
+        } catch (error) {
+            console.error('Error saving stream data:', error);
+            throw error;
+        }
     }
 
     /**

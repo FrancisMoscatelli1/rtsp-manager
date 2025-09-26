@@ -27,7 +27,7 @@ yarn-error.log*
 migrations*
 
 #data
-data/streams.json
+data/streams.*
 nginx/dash/*
 nginx/hls/*
 
