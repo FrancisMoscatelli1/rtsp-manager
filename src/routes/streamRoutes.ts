@@ -188,6 +188,50 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * PUT /api/streams/:cameraId/reset - Reiniciar un stream
+ */
+router.put('/:cameraId/reset', async (req: Request, res: Response) => {
+    try {
+        const cameraId = req.params.cameraId;
+        if (!uuidValidate(cameraId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid camera ID format (must be UUID)'
+            });
+        }
+
+        // Obtener stream existente (si existe) para decidir si reiniciar
+        const existing = persistenceService.getStream(cameraId);
+        const rtspUrl = existing?.configuration?.rtspUrl;
+
+        if (rtspUrl) {
+            console.log(`Resetting stream for camera ${cameraId}`);
+
+            await StreamService.stopStream(cameraId);
+            await StreamService.startDashStream(cameraId, rtspUrl);
+            
+            console.log(`Stream for camera ${cameraId} restarted successfully`);
+            return res.json({
+                success: true,
+                message: 'Stream restarted successfully'
+            });
+        } else {
+            return res.status(404).json({
+                success: false,
+                message: 'Stream not found'
+            });
+        }
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Error configuring stream',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
  * DELETE /api/streams/:cameraId - Eliminar un stream
  */
 router.delete('/:cameraId', async (req: Request, res: Response) => {
